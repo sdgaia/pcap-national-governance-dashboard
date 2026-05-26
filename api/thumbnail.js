@@ -60,8 +60,16 @@ function color(v) {
   return v >= 80 ? '#16a34a' : v >= 60 ? '#2563eb' : v >= 40 ? '#f97316' : '#dc2626';
 }
 
+function exposureColor(v) {
+  return v <= 20 ? '#16a34a' : v <= 40 ? '#2563eb' : v <= 60 ? '#f97316' : '#dc2626';
+}
+
 function label(v) {
   return v >= 80 ? 'Strong' : v >= 60 ? 'Moderate' : v >= 40 ? 'Fragile' : 'Critical';
+}
+
+function exposureLabel(v) {
+  return v <= 20 ? 'Low' : v <= 40 ? 'Moderate' : v <= 60 ? 'High' : 'Severe';
 }
 
 async function getRecord(table, id) {
@@ -72,25 +80,38 @@ async function getRecord(table, id) {
   return r.json();
 }
 
-function metricBlock(x, y, title, value) {
+function metricBlock(x, y, title, value, exposure = false) {
   const v = pct(value);
-  const c = color(v);
+  const c = exposure ? exposureColor(v) : color(v);
+  const lbl = exposure ? exposureLabel(v) : label(v);
   return `
-    <rect x="${x}" y="${y}" width="250" height="120" rx="18" fill="#ffffff" stroke="#e2e8f0"/>
-    <text x="${x + 22}" y="${y + 34}" font-size="16" font-weight="700" fill="#475569">${safe(title)}</text>
-    <text x="${x + 22}" y="${y + 82}" font-size="42" font-weight="900" fill="${c}">${v}%</text>
-    <text x="${x + 135}" y="${y + 82}" font-size="16" font-weight="800" fill="${c}">${label(v)}</text>
+    <rect x="${x}" y="${y}" width="250" height="116" rx="18" fill="#ffffff" stroke="#e2e8f0"/>
+    <text x="${x + 20}" y="${y + 32}" font-size="15" font-weight="800" fill="#475569">${safe(title)}</text>
+    <text x="${x + 20}" y="${y + 78}" font-size="39" font-weight="900" fill="${c}">${v}%</text>
+    <text x="${x + 132}" y="${y + 78}" font-size="15" font-weight="900" fill="${c}">${lbl}</text>
   `;
 }
 
-function bar(x, y, title, value) {
+function bar(x, y, title, value, w = 470) {
   const v = pct(value);
   const c = color(v);
   return `
-    <text x="${x}" y="${y}" font-size="16" font-weight="800" fill="#0f172a">${safe(title)}</text>
-    <rect x="${x}" y="${y + 12}" width="430" height="12" rx="6" fill="#e5e7eb"/>
-    <rect x="${x}" y="${y + 12}" width="${Math.round(430 * v / 100)}" height="12" rx="6" fill="${c}"/>
-    <text x="${x + 450}" y="${y + 24}" font-size="16" font-weight="900" fill="${c}">${v}%</text>
+    <text x="${x}" y="${y}" font-size="15" font-weight="850" fill="#0f172a">${safe(title)}</text>
+    <rect x="${x}" y="${y + 13}" width="${w}" height="12" rx="6" fill="#e5e7eb"/>
+    <rect x="${x}" y="${y + 13}" width="${Math.round(w * v / 100)}" height="12" rx="6" fill="${c}"/>
+    <text x="${x + w + 18}" y="${y + 25}" font-size="15" font-weight="900" fill="${c}">${v}%</text>
+  `;
+}
+
+function smallBox(x, y, title, body, w = 250, h = 88) {
+  return `
+    <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="16" fill="#ffffff" stroke="#e2e8f0"/>
+    <text x="${x + 18}" y="${y + 30}" font-size="15" font-weight="900" fill="#0f172a">${safe(title)}</text>
+    <foreignObject x="${x + 18}" y="${y + 42}" width="${w - 36}" height="${h - 48}">
+      <div xmlns="http://www.w3.org/1999/xhtml" style="font-family:Arial,sans-serif;font-size:13px;line-height:1.35;color:#475569;font-weight:650;overflow:hidden;">
+        ${safe(body)}
+      </div>
+    </foreignObject>
   `;
 }
 
@@ -105,45 +126,86 @@ function buildSvg(record) {
   const overall = pct(raw(f, ['Operational Governance Score', 'National Operational Governance Score', 'Overall Coherence Score', 'Governance Intelligence Score']), avg([c1, c2, c3, c4, c5, c6], 0));
   const ociD = pct(raw(f, ['OCI-D', 'Design Coherence', 'Strategic Coherence Score']), avg([c1, c2, c3], overall));
   const ociO = pct(raw(f, ['OCI-O', 'Operational Coherence', 'Execution Coherence Score']), avg([c4, c5, c6], overall));
-  const weakest = [['C1', c1], ['C2', c2], ['C3', c3], ['C4', c4], ['C5', c5], ['C6', c6]].sort((a, b) => a[1] - b[1])[0];
+  const fragmentation = Math.max(0, Math.min(100, Math.round((100 - c4) * .45 + (100 - c5) * .35 + (100 - ociO) * .2)));
+  const weakest = [['C1 Policy Alignment', c1], ['C2 Instrument Embedding', c2], ['C3 Resource Alignment', c3], ['C4 Monitoring System', c4], ['C5 Trigger & Escalation', c5], ['C6 Traceability', c6]].sort((a, b) => a[1] - b[1])[0];
 
   const name = pick(f, ['Strategy Name', 'Policy Name', 'Name'], 'National Governance Dashboard');
   const country = pick(f, ['Country'], 'Ghana');
   const owner = pick(f, ['Issuing Authority', 'Owner', 'Responsible Institution'], 'National owner');
+  const strategyId = pick(f, ['Strategy ID', 'ID', 'Policy ID'], record?.id || '-');
   const summary = pick(f, ['AI Executive Summary', 'Executive Governance Narrative', 'Governance Intelligence Summary'], 'Operational governance snapshot generated from the selected Airtable record.');
+  const diagnosis = pick(f, ['Policy Diagnosis', 'Operational Coherence Diagnosis', 'AI Key Risk'], 'Review policy alignment, monitoring reliability, escalation readiness and auditability evidence.');
+  const recommendation = pick(f, ['AI Main Recommendation', 'Priority Intervention Narrative'], 'Strengthen monitoring reliability, escalation closure and traceability evidence.');
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="1180" viewBox="0 0 1280 1180">
   <defs>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#0f172a" flood-opacity="0.12"/></filter>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#0f172a" flood-opacity="0.12"/></filter>
+    <linearGradient id="soft" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#f8fafc"/><stop offset="1" stop-color="#eef2ff"/></linearGradient>
   </defs>
-  <rect width="1280" height="720" fill="#f3f6fb"/>
-  <rect x="36" y="34" width="1208" height="652" rx="28" fill="#ffffff" stroke="#e2e8f0" filter="url(#shadow)"/>
-  <text x="72" y="78" font-size="18" font-weight="900" fill="#4f46e5">National Strategy Governance Dashboard</text>
-  <text x="72" y="128" font-size="40" font-weight="900" fill="#0f172a">${safe(name)}</text>
-  <text x="72" y="164" font-size="20" font-weight="700" fill="#64748b">${safe(country)} • ${safe(owner)} • Updated ${new Date().toLocaleDateString()}</text>
+  <rect width="1280" height="1180" fill="#f3f6fb"/>
+  <rect x="34" y="28" width="1212" height="1126" rx="28" fill="#ffffff" stroke="#e2e8f0" filter="url(#shadow)"/>
 
-  ${metricBlock(72, 208, 'Overall Governance', overall)}
-  ${metricBlock(342, 208, 'Design Coherence', ociD)}
-  ${metricBlock(612, 208, 'Operational Coherence', ociO)}
-  ${metricBlock(882, 208, `Weakest Component ${weakest[0]}`, weakest[1])}
+  <text x="72" y="74" font-size="17" font-weight="900" fill="#4f46e5">National Strategy Governance Dashboard</text>
+  <text x="72" y="125" font-size="38" font-weight="900" fill="#0f172a">${safe(name)}</text>
+  <text x="72" y="160" font-size="19" font-weight="750" fill="#64748b">${safe(strategyId)} • ${safe(country)} • ${safe(owner)} • Updated ${new Date().toLocaleDateString()}</text>
 
-  <rect x="72" y="370" width="610" height="238" rx="20" fill="#f8fafc" stroke="#e2e8f0"/>
-  <text x="102" y="414" font-size="24" font-weight="900" fill="#0f172a">Component Performance</text>
-  ${bar(102, 455, 'C1 Policy Alignment', c1)}
-  ${bar(102, 500, 'C2 Instrument Embedding', c2)}
-  ${bar(102, 545, 'C3 Resource Alignment', c3)}
-  ${bar(102, 590, 'C4 Monitoring System', c4)}
-  ${bar(102, 635, 'C5 Trigger & Escalation', c5)}
+  ${metricBlock(72, 202, 'Overall Governance', overall)}
+  ${metricBlock(344, 202, 'Design Coherence', ociD)}
+  ${metricBlock(616, 202, 'Operational Coherence', ociO)}
+  ${metricBlock(888, 202, `Weakest ${weakest[0].split(' ')[0]}`, weakest[1])}
 
-  <rect x="716" y="370" width="492" height="238" rx="20" fill="#eef2ff" stroke="#c7d2fe"/>
-  <text x="746" y="414" font-size="24" font-weight="900" fill="#0f172a">Governance Synthesis</text>
-  <foreignObject x="746" y="438" width="420" height="112">
-    <div xmlns="http://www.w3.org/1999/xhtml" style="font-family:Arial,sans-serif;font-size:18px;line-height:1.4;color:#334155;font-weight:600;">
-      ${safe(summary).slice(0, 260)}${safe(summary).length > 260 ? '…' : ''}
+  <rect x="72" y="356" width="540" height="310" rx="20" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="102" y="402" font-size="24" font-weight="900" fill="#0f172a">OCAM Component Performance</text>
+  ${bar(102, 446, 'C1 Policy Alignment', c1, 380)}
+  ${bar(102, 491, 'C2 Instrument Embedding', c2, 380)}
+  ${bar(102, 536, 'C3 Resource Alignment', c3, 380)}
+  ${bar(102, 581, 'C4 Monitoring System', c4, 380)}
+  ${bar(102, 626, 'C5 Trigger & Escalation', c5, 380)}
+
+  <rect x="646" y="356" width="562" height="310" rx="20" fill="#eef2ff" stroke="#c7d2fe"/>
+  <text x="676" y="402" font-size="24" font-weight="900" fill="#0f172a">Governance Synthesis</text>
+  <foreignObject x="676" y="425" width="500" height="155">
+    <div xmlns="http://www.w3.org/1999/xhtml" style="font-family:Arial,sans-serif;font-size:18px;line-height:1.42;color:#334155;font-weight:650;overflow:hidden;">
+      ${safe(summary).slice(0, 520)}${safe(summary).length > 520 ? '…' : ''}
     </div>
   </foreignObject>
-  <text x="746" y="585" font-size="18" font-weight="900" fill="#4f46e5">Use this URL as a direct image thumbnail in Stacker.</text>
+  <text x="676" y="620" font-size="17" font-weight="900" fill="#4f46e5">Full-dashboard image preview generated for Stacker.</text>
+
+  <rect x="72" y="700" width="1136" height="138" rx="20" fill="url(#soft)" stroke="#dbeafe"/>
+  <text x="102" y="742" font-size="23" font-weight="900" fill="#0f172a">Operational Governance Chain</text>
+  <rect x="102" y="770" width="210" height="42" rx="12" fill="#dbeafe" stroke="#bfdbfe"/><text x="126" y="797" font-size="16" font-weight="900" fill="#1e3a8a">National Strategy</text>
+  <text x="335" y="798" font-size="26" font-weight="900" fill="#2563eb">➜</text>
+  <rect x="378" y="770" width="190" height="42" rx="12" fill="#fff" stroke="#bfdbfe"/><text x="420" y="797" font-size="16" font-weight="900" fill="#1e3a8a">Policy Layer</text>
+  <text x="590" y="798" font-size="26" font-weight="900" fill="#2563eb">➜</text>
+  <rect x="633" y="770" width="210" height="42" rx="12" fill="#fff" stroke="#bfdbfe"/><text x="670" y="797" font-size="16" font-weight="900" fill="#1e3a8a">Programme Layer</text>
+  <text x="866" y="798" font-size="26" font-weight="900" fill="#2563eb">➜</text>
+  <rect x="909" y="770" width="210" height="42" rx="12" fill="#fff" stroke="#bfdbfe"/><text x="955" y="797" font-size="16" font-weight="900" fill="#1e3a8a">Action Layer</text>
+
+  <rect x="72" y="872" width="364" height="208" rx="20" fill="#fff7ed" stroke="#fed7aa"/>
+  <text x="102" y="916" font-size="23" font-weight="900" fill="#0f172a">Governance Exposure</text>
+  <text x="102" y="966" font-size="46" font-weight="900" fill="${exposureColor(fragmentation)}">${fragmentation}%</text>
+  <text x="240" y="965" font-size="18" font-weight="900" fill="${exposureColor(fragmentation)}">${exposureLabel(fragmentation)} Exposure</text>
+  <text x="102" y="1018" font-size="16" font-weight="800" fill="#475569">Monitoring ${c4}% • Escalation ${c5}% • Traceability ${c6}%</text>
+
+  <rect x="458" y="872" width="350" height="208" rx="20" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="488" y="916" font-size="23" font-weight="900" fill="#0f172a">Priority Diagnosis</text>
+  <foreignObject x="488" y="940" width="290" height="104">
+    <div xmlns="http://www.w3.org/1999/xhtml" style="font-family:Arial,sans-serif;font-size:16px;line-height:1.38;color:#475569;font-weight:650;overflow:hidden;">
+      ${safe(diagnosis).slice(0, 260)}${safe(diagnosis).length > 260 ? '…' : ''}
+    </div>
+  </foreignObject>
+
+  <rect x="830" y="872" width="378" height="208" rx="20" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="860" y="916" font-size="23" font-weight="900" fill="#0f172a">Recommended Action</text>
+  <foreignObject x="860" y="940" width="318" height="104">
+    <div xmlns="http://www.w3.org/1999/xhtml" style="font-family:Arial,sans-serif;font-size:16px;line-height:1.38;color:#475569;font-weight:650;overflow:hidden;">
+      ${safe(recommendation).slice(0, 290)}${safe(recommendation).length > 290 ? '…' : ''}
+    </div>
+  </foreignObject>
+
+  ${smallBox(72, 1102, 'Dashboard Mode', 'Full governance thumbnail preview', 250, 36)}
+  <text x="970" y="1126" font-size="13" font-weight="800" fill="#94a3b8">PCAP / OCAM</text>
 </svg>`;
 }
 

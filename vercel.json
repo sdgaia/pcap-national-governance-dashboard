@@ -4,9 +4,29 @@
     {
       "src": "api/index.js",
       "use": "@vercel/node"
+    },
+    {
+      "src": "api/thumbnail.js",
+      "use": "@vercel/node"
     }
   ],
   "routes": [
+    {
+      "src": "/api/thumbnail/(.*)",
+      "dest": "api/thumbnail.js"
+    },
+    {
+      "src": "/api/thumbnail",
+      "dest": "api/thumbnail.js"
+    },
+    {
+      "src": "/thumbnail/(.*)",
+      "dest": "api/thumbnail.js"
+    },
+    {
+      "src": "/thumbnail",
+      "dest": "api/thumbnail.js"
+    },
     {
       "src": "/(.*)",
       "dest": "api/index.js"
